@@ -1,11 +1,16 @@
 package com.example.recieptscaner.controller;
 
+import com.example.recieptscaner.dto.ReceiptAnalysisDTO;
+import com.example.recieptscaner.dto.ReceiptDTO;
 import com.example.recieptscaner.model.Receipt;
 import com.example.recieptscaner.service.ReceiptService;
+import com.example.recieptscaner.service.ReceiptAnalysisService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -15,6 +20,31 @@ import java.util.Optional;
 public class ReceiptController {
 
     private final ReceiptService receiptService;
+    private final ReceiptAnalysisService receiptAnalysisService;
+
+
+    @PostMapping("/upload")
+    public ResponseEntity<String> uploadReceipt(@RequestParam("file") MultipartFile file) {
+        try {
+            ReceiptDTO extractedReceipt = receiptService.extractReceiptData(file);
+
+            receiptService.saveReceipt(extractedReceipt);
+            return ResponseEntity.ok("Text extracted and saved successfully.");
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Error processing the image: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/analyze")
+    public ReceiptAnalysisDTO analyzeReceipts(
+            @RequestParam Long userId,
+            @RequestParam String startDate,
+            @RequestParam String endDate) {
+        LocalDate start = LocalDate.parse(startDate);
+        LocalDate end = LocalDate.parse(endDate);
+        return receiptAnalysisService.analyzeReceiptsForWeek(userId, start, end);
+    }
+
 
     // Create a Receipt
     @PostMapping
