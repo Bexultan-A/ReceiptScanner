@@ -33,7 +33,7 @@ public class ReceiptAnalysisService {
         // Calculate top stores
         Map<String, Double> topStores = receipts.stream()
                 .collect(Collectors.groupingBy(
-                        Receipt::getStoreName,
+                        Receipt -> Receipt.getStore().getName(),
                         Collectors.summingDouble(Receipt::getTotalAmount)
                 ))
                 .entrySet().stream() // Process the entrySet of the resulting Map

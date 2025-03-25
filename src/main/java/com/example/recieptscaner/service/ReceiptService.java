@@ -20,15 +20,12 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
-import java.io.File;
+import java.util.*;
 
 @Service
 public class ReceiptService {
-
-    private String uploadDir = "src/main/resources/uploads";
 
     private final ReceiptRepository receiptRepository;
     private final RestTemplate restTemplate;
@@ -40,94 +37,85 @@ public class ReceiptService {
     private String fastApiUrl = "http://localhost:8000/extract";
 
     public ReceiptService(ReceiptRepository receiptRepository,
-                          RestTemplate restTemplate,
                           UserRepository userRepository,
                           StoreRepository storeRepository,
                           CategoryRepository categoryRepository,
                           ReceiptItemRepository receiptItemRepository) {
         this.receiptRepository = receiptRepository;
-        this.restTemplate = restTemplate;
+        this.restTemplate = new RestTemplate();
         this.userRepository = userRepository;
         this.storeRepository = storeRepository;
         this.categoryRepository = categoryRepository;
         this.receiptItemRepository = receiptItemRepository;
     }
 
-    public ReceiptDTO extractReceiptData(MultipartFile file) throws IOException {
-        String filePath = saveFile(file);
-
-
-        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        ByteArrayResource resource = new ByteArrayResource(file.getBytes()) {
-            @Override
-            public String getFilename() {
-                return file.getOriginalFilename();
-            }
-        };
-        body.add("file", resource);
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-        HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
-
-        // Directly receive ReceiptDTO instead of mapping manually
-        ResponseEntity<ReceiptDTO> response = restTemplate.postForEntity(fastApiUrl, requestEntity, ReceiptDTO.class);
-
-        if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-            return response.getBody();
-        } else {
-            throw new RuntimeException("Failed to extract receipt data from image");
-        }
-    }
-
-    private String saveFile(MultipartFile file) throws IOException {
-        // Ensure the upload directory exists
-        File directory = new File(uploadDir);
-        if (!directory.exists()) {
-            directory.mkdirs();
-        }
-
-        // Generate a unique file name to avoid conflicts
-        String fileName = System.currentTimeMillis() + "_" + file.getOriginalFilename();
-        Path filePath = Paths.get(uploadDir, fileName);
-
-        // Save the file
-        Files.copy(file.getInputStream(), filePath);
-
-        // Return the file path or URL
-        return filePath.toString();
-    }
-
-
-
     @Transactional
-    public String saveReceipt(ReceiptDTO receiptDTO) {
-        User user = userRepository.findById(receiptDTO.getUserId())
+    public Long createBlankReceipt(Long userId, String scannedImageUrl) {
+        User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
-
-        Store store = receiptDTO.getStoreName() != null ? storeRepository.findByName(receiptDTO.getStoreName()) : null;
 
         Receipt receipt = Receipt.builder()
                 .user(user)
-                .store(store)
-                .storeName(receiptDTO.getStoreName())
-                .receiptDate(receiptDTO.getReceiptDate())
-                .totalAmount(receiptDTO.getTotalAmount())
-                .taxAmount(receiptDTO.getTaxAmount())
-                .scannedImageUrl(receiptDTO.getScannedImageUrl())
+                .scannedImageUrl(scannedImageUrl)
+                .status("UNKNOWN") // Initial status
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
 
         receipt = receiptRepository.save(receipt);
+        return receipt.getReceiptId(); // Return the ID of the blank receipt
+    }
 
-        Receipt finalReceipt = receipt;
+
+    public void processImage(Long receiptId, byte[] fileBytes) throws IOException {
+        // Convert byte array to Base64
+        String base64Image = Base64.getEncoder().encodeToString(fileBytes);
+
+
+        // Prepare JSON payload
+        Map<String, Object> body = new HashMap<>();
+        body.put("receiptId", receiptId);
+        body.put("fileBase64", base64Image);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<Map<String, Object>> requestEntity = new HttpEntity<>(body, headers);
+
+        // Send the image to FastAPI
+        ResponseEntity<String> response = restTemplate.postForEntity(fastApiUrl, requestEntity, String.class);
+
+        if (response.getStatusCode() == HttpStatus.OK) {
+            // Update the receipt status to "PROCESSING"
+            Receipt receipt = receiptRepository.findById(receiptId)
+                    .orElseThrow(() -> new RuntimeException("Receipt not found"));
+            receipt.setStatus("PROCESSING");
+            receiptRepository.save(receipt);
+        } else {
+            throw new RuntimeException("Failed to process image");
+        }
+    }
+
+    @Transactional
+    public void updateReceiptWithData(Long receiptId, ReceiptDTO receiptDTO) {
+        Receipt receipt = receiptRepository.findById(receiptId)
+                .orElseThrow(() -> new RuntimeException("Receipt not found"));
+
+        Store store = storeRepository.findByName(receiptDTO.getStoreName())
+                .orElseThrow(() -> new RuntimeException("Store not found"));
+
+        receipt.setStore(store);
+        receipt.setReceiptDate(receiptDTO.getReceiptDate());
+        receipt.setTotalAmount(receiptDTO.getTotalAmount());
+        receipt.setTaxAmount(receiptDTO.getTaxAmount());
+        receipt.setStatus("COMPLETED"); // Update status to "COMPLETED"
+
         List<ReceiptItem> receiptItems = receiptDTO.getReceiptItems().stream().map(itemDTO -> {
             Category category = categoryRepository.findByName(itemDTO.getCategoryName())
                     .orElseThrow(() -> new RuntimeException("Category not found"));
 
             return ReceiptItem.builder()
-                    .receipt(finalReceipt)
+                    .receipt(receipt)
                     .description(itemDTO.getDescription())
                     .quantity(itemDTO.getQuantity())
                     .unitPrice(itemDTO.getUnitPrice())
@@ -138,15 +126,35 @@ public class ReceiptService {
                     .build();
         }).toList();
 
+        receipt.getReceiptItems().clear();
         receipt.getReceiptItems().addAll(receiptItems);
 
         for (ReceiptItem receiptItem : receiptItems) {
             receiptItemRepository.save(receiptItem);
         }
 
-        return "Successfully saved";
+        receiptRepository.save(receipt);
     }
 
+
+    public String saveFile(byte[] fileBytes) throws IOException {
+        // Get the absolute path to the `uploads` directory
+        Path uploadDir = Paths.get("src/main/resources/uploads").toAbsolutePath();
+
+        // Ensure the directory exists
+        if (!Files.exists(uploadDir)) {
+            Files.createDirectories(uploadDir);
+        }
+
+        // Generate a unique filename
+        String fileName = UUID.randomUUID() + ".jpg";
+        Path filePath = uploadDir.resolve(fileName);
+
+        // Write the file to the directory
+        Files.write(filePath, fileBytes, StandardOpenOption.CREATE);
+
+        return filePath.toString();
+    }
 
 
 
@@ -183,7 +191,6 @@ public class ReceiptService {
         return receiptRepository.findById(id)
                 .map(existingReceipt -> {
                     existingReceipt.setStore(updatedReceipt.getStore());
-                    existingReceipt.setStoreName(updatedReceipt.getStoreName());
                     existingReceipt.setReceiptDate(updatedReceipt.getReceiptDate());
                     existingReceipt.setTotalAmount(updatedReceipt.getTotalAmount());
                     existingReceipt.setTaxAmount(updatedReceipt.getTaxAmount());

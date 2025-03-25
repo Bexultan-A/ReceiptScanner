@@ -4,25 +4,26 @@ import com.example.recieptscaner.model.User;
 import com.example.recieptscaner.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
 @Service
-@RequiredArgsConstructor
 public class UserService {
 
     private final UserRepository userRepository;
-    private final BCryptPasswordEncoder passwordEncoder;
+
+    public UserService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
 
     // Create a User
     public User createUser(User user) {
         if (userRepository.existsByUsername(user.getUsername()) || userRepository.existsByEmail(user.getEmail())) {
             throw new RuntimeException("Username or email already exists");
         }
-        user.setPasswordHash(passwordEncoder.encode(user.getPasswordHash()));
+        user.setPasswordHash(user.getPasswordHash());
         user.setCreatedAt(LocalDateTime.now());
         user.setUpdatedAt(LocalDateTime.now());
         return userRepository.save(user);
@@ -57,7 +58,7 @@ public class UserService {
                     existingUser.setFirstName(updatedUser.getFirstName());
                     existingUser.setLastName(updatedUser.getLastName());
                     if (updatedUser.getPasswordHash() != null && !updatedUser.getPasswordHash().isEmpty()) {
-                        existingUser.setPasswordHash(passwordEncoder.encode(updatedUser.getPasswordHash()));
+                        existingUser.setPasswordHash(updatedUser.getPasswordHash());
                     }
                     existingUser.setUpdatedAt(LocalDateTime.now());
                     return userRepository.save(existingUser);

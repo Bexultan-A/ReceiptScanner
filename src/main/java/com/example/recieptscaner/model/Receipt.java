@@ -30,13 +30,10 @@ public class Receipt {
     @JoinColumn(name = "store_id")
     private Store store;
 
-    @Column(nullable = false)
-    private String storeName;
-
-    @Column(nullable = false)
+    @Column
     private LocalDate receiptDate;
 
-    @Column(nullable = false)
+    @Column
     private Double totalAmount;
 
     private Double taxAmount;
@@ -54,4 +51,7 @@ public class Receipt {
     @OneToMany(mappedBy = "receipt", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private List<ReceiptItem> receiptItems;
+
+    @Column(nullable = false)
+    private String status;
 }

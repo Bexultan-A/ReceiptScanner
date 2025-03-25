@@ -10,7 +10,6 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class ReceiptDTO {
-    private Long userId;
     private String storeName;
     private LocalDate receiptDate;
     private Double totalAmount;

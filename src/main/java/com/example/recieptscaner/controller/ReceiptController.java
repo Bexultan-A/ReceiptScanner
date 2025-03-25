@@ -2,38 +2,59 @@ package com.example.recieptscaner.controller;
 
 import com.example.recieptscaner.dto.ReceiptAnalysisDTO;
 import com.example.recieptscaner.dto.ReceiptDTO;
+import com.example.recieptscaner.dto.ReceiptUploadRequest;
 import com.example.recieptscaner.model.Receipt;
 import com.example.recieptscaner.service.ReceiptService;
 import com.example.recieptscaner.service.ReceiptAnalysisService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.Base64;
 
 @RestController
 @RequestMapping("/api/receipts")
 @RequiredArgsConstructor
+@CrossOrigin(origins = "http://localhost:3000")
 public class ReceiptController {
 
     private final ReceiptService receiptService;
     private final ReceiptAnalysisService receiptAnalysisService;
 
-
     @PostMapping("/upload")
-    public ResponseEntity<String> uploadReceipt(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<String> uploadReceipt(@RequestBody ReceiptUploadRequest request) {
         try {
-            ReceiptDTO extractedReceipt = receiptService.extractReceiptData(file);
 
-            receiptService.saveReceipt(extractedReceipt);
-            return ResponseEntity.ok("Text extracted and saved successfully.");
+            byte[] decodedBytes = Base64.getDecoder().decode(request.getFileBase64());
+
+            // Step 1: Create and save a blank receipt
+            String filePath = receiptService.saveFile(decodedBytes);
+            Long receiptId = receiptService.createBlankReceipt(request.getUserId(), filePath);
+
+            // Step 2: Send the image to FastAPI and update the receipt status
+//            receiptService.processImage(receiptId, decodedBytes);
+
+            return ResponseEntity.ok("Receipt is being processed. Receipt ID: " + receiptId);
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body("Error processing the image: " + e.getMessage());
         }
     }
+
+
+    @PostMapping("/update")
+    public ResponseEntity<String> updateReceipt(@RequestBody ReceiptDTO receiptDTO, @RequestParam Long receiptId) {
+        try {
+            // Step 3: Update the blank receipt with the extracted data
+            receiptService.updateReceiptWithData(receiptId, receiptDTO);
+            return ResponseEntity.ok("Receipt updated successfully.");
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Error updating the receipt: " + e.getMessage());
+        }
+    }
+
 
     @GetMapping("/analyze")
     public ReceiptAnalysisDTO analyzeReceipts(
