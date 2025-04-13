@@ -59,12 +59,31 @@ public class ReceiptController {
     @GetMapping("/analyze")
     public ReceiptAnalysisDTO analyzeReceipts(
             @RequestParam Long userId,
-            @RequestParam String startDate,
-            @RequestParam String endDate) {
-        LocalDate start = LocalDate.parse(startDate);
-        LocalDate end = LocalDate.parse(endDate);
-        return receiptAnalysisService.analyzeReceiptsForWeek(userId, start, end);
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) String period // daily, weekly, monthly, yearly
+    ) {
+        LocalDate end = (endDate != null) ? LocalDate.parse(endDate) : LocalDate.now();
+        LocalDate start;
+
+        if (startDate != null) {
+            start = LocalDate.parse(startDate);
+        } else if (period != null) {
+            switch (period.toLowerCase()) {
+                case "daily" -> start = end;
+                case "weekly" -> start = end.minusWeeks(1);
+                case "monthly" -> start = end.minusMonths(1);
+                case "yearly" -> start = end.minusYears(1);
+                default -> throw new IllegalArgumentException("Invalid period type: " + period);
+            }
+        } else {
+            // default to last 30 days
+            start = end.minusDays(30);
+        }
+
+        return receiptAnalysisService.analyzeReceipts(userId, start, end);
     }
+
 
 
     // Create a Receipt

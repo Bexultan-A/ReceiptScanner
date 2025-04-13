@@ -49,7 +49,7 @@ public class StoreService {
                     existingStore.setName(updatedStore.getName());
                     existingStore.setAddress(updatedStore.getAddress());
                     existingStore.setCity(updatedStore.getCity());
-                    existingStore.setState(updatedStore.getState());
+                    existingStore.setRegion(updatedStore.getRegion());
                     existingStore.setZipCode(updatedStore.getZipCode());
                     existingStore.setCountry(updatedStore.getCountry());
                     existingStore.setUpdatedAt(LocalDateTime.now());
